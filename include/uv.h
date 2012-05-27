@@ -42,7 +42,15 @@ extern "C" {
 #   define CARES_STATICLIB 1
 # endif
 #elif __GNUC__ >= 4
-# define UV_EXTERN __attribute__((visibility("default")))
+# if defined(BUILDING_UV_SHARED)
+#   define UV_EXTERN __attribute__((visibility("default")))
+#   define CARES_BUILDING_LIBRARY 1
+# elif defined(USING_UV_SHARED)
+#   define UV_EXTERN __attribute__((visibility("default")))
+# else
+#   define UV_EXTERN
+#   define CARES_STATICLIB 1
+# endif
 #else
 # define UV_EXTERN /* nothing */
 #endif

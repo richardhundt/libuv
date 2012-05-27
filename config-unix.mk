@@ -20,12 +20,13 @@
 
 E=
 CSTDFLAG=--std=c89 -pedantic -Wall -Wextra -Wno-unused-parameter
-CFLAGS += -g -Wl,-E
+CFLAGS += -g -fPIC -fvisibility=hidden
 CPPFLAGS += -Isrc -Isrc/unix/ev
 LINKFLAGS=-lm
 
 CPPFLAGS += -D_LARGEFILE_SOURCE
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
+CPPFLAGS += -DUSING_UV_SHARED
 
 OBJS += src/unix/async.o
 OBJS += src/unix/core.o
@@ -131,6 +132,9 @@ RUNNER_SRC=test/runner-unix.c
 
 uv.a: $(OBJS) src/cares.o src/uv-common.o src/unix/ev/ev.o src/unix/uv-eio.o src/unix/eio/eio.o $(CARES_OBJS)
 	$(AR) rcs uv.a $(OBJS) src/cares.o src/uv-common.o src/unix/uv-eio.o src/unix/ev/ev.o src/unix/eio/eio.o $(CARES_OBJS)
+
+libuv.so: $(OBJS) src/cares.o src/uv-common.o src/unix/ev/ev.o src/unix/uv-eio.o src/unix/eio/eio.o $(CARES_OBJS)
+	$(CC) -shared -o libuv.so $(OBJS) src/cares.o src/uv-common.o src/unix/uv-eio.o src/unix/ev/ev.o src/unix/eio/eio.o $(CARES_OBJS)
 
 src/%.o: src/%.c include/uv.h include/uv-private/uv-unix.h
 	$(CC) $(CSTDFLAG) $(CPPFLAGS) $(CFLAGS) -c $< -o $@

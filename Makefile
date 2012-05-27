@@ -80,7 +80,7 @@ endif
 TESTS=test/blackhole-server.c test/echo-server.c test/test-*.c
 BENCHMARKS=test/blackhole-server.c test/echo-server.c test/dns-server.c test/benchmark-*.c
 
-all: uv.a
+all: uv.a libuv.so
 
 $(CARES_OBJS): %.o: %.c
 	$(CC) -o $*.o -c $(CFLAGS) $(CPPFLAGS) $< -DHAVE_CONFIG_H
