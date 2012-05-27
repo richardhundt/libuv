@@ -20,9 +20,9 @@
 
 E=
 CSTDFLAG=--std=c89 -pedantic -Wall -Wextra -Wno-unused-parameter
-CFLAGS += -g -fPIC -fvisibility=hidden
+CFLAGS += -g
 CPPFLAGS += -Isrc -Isrc/unix/ev
-LINKFLAGS=-lm
+LINKFLAGS=-lm -ldl
 
 CPPFLAGS += -D_LARGEFILE_SOURCE
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
@@ -57,7 +57,7 @@ ifeq (Darwin,$(uname_S))
 EV_CONFIG=config_darwin.h
 EIO_CONFIG=config_darwin.h
 CPPFLAGS += -D_DARWIN_USE_64_BIT_INODE=1 -Isrc/ares/config_darwin
-LINKFLAGS+=-framework CoreServices
+LINKFLAGS+= -framework CoreServices
 OBJS += src/unix/darwin.o
 OBJS += src/unix/kqueue.o
 endif
@@ -65,6 +65,7 @@ endif
 ifeq (Linux,$(uname_S))
 EV_CONFIG=config_linux.h
 EIO_CONFIG=config_linux.h
+CFLAGS += -fPIC -fvisibility=hidden
 CSTDFLAG += -D_GNU_SOURCE
 CPPFLAGS += -Isrc/ares/config_linux
 LINKFLAGS+=-ldl -lrt
@@ -134,7 +135,7 @@ uv.a: $(OBJS) src/cares.o src/uv-common.o src/unix/ev/ev.o src/unix/uv-eio.o src
 	$(AR) rcs uv.a $(OBJS) src/cares.o src/uv-common.o src/unix/uv-eio.o src/unix/ev/ev.o src/unix/eio/eio.o $(CARES_OBJS)
 
 libuv.so: $(OBJS) src/cares.o src/uv-common.o src/unix/ev/ev.o src/unix/uv-eio.o src/unix/eio/eio.o $(CARES_OBJS)
-	$(CC) -shared -o libuv.so $(OBJS) src/cares.o src/uv-common.o src/unix/uv-eio.o src/unix/ev/ev.o src/unix/eio/eio.o $(CARES_OBJS)
+	$(CC) -shared -o libuv.so $(OBJS) src/cares.o src/uv-common.o src/unix/uv-eio.o src/unix/ev/ev.o src/unix/eio/eio.o $(CARES_OBJS) $(LINKFLAGS)
 
 src/%.o: src/%.c include/uv.h include/uv-private/uv-unix.h
 	$(CC) $(CSTDFLAG) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
