@@ -23,6 +23,9 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "handle-inl.h"
+#include "stream-inl.h"
+#include "req-inl.h"
 
 
 /*
@@ -120,9 +123,8 @@ static int uv_udp_set_socket(uv_loop_t* loop, uv_udp_t* handle,
 
 
 int uv_udp_init(uv_loop_t* loop, uv_udp_t* handle) {
-  uv_handle_init(loop, (uv_handle_t*) handle);
+  uv__handle_init(loop, (uv_handle_t*) handle, UV_UDP);
 
-  handle->type = UV_UDP;
   handle->socket = INVALID_SOCKET;
   handle->reqs_pending = 0;
   handle->activecnt = 0;
@@ -132,8 +134,6 @@ int uv_udp_init(uv_loop_t* loop, uv_udp_t* handle) {
   uv_req_init(loop, (uv_req_t*) &(handle->recv_req));
   handle->recv_req.type = UV_UDP_RECV;
   handle->recv_req.data = handle;
-
-  loop->counters.udp_init++;
 
   return 0;
 }
@@ -155,12 +155,8 @@ void uv_udp_endgame(uv_loop_t* loop, uv_udp_t* handle) {
   if (handle->flags & UV_HANDLE_CLOSING &&
       handle->reqs_pending == 0) {
     assert(!(handle->flags & UV_HANDLE_CLOSED));
-    handle->flags |= UV_HANDLE_CLOSED;
     uv__handle_stop(handle);
-
-    if (handle->close_cb) {
-      handle->close_cb((uv_handle_t*)handle);
-    }
+    uv__handle_close(handle);
   }
 }
 

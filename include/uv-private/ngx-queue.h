@@ -62,7 +62,7 @@ struct ngx_queue_s {
     (q)->prev
 
 
-#if (NGX_DEBUG)
+#if defined(NGX_DEBUG)
 
 #define ngx_queue_remove(x)                                                   \
     (x)->next->prev = (x)->prev;                                              \
@@ -100,7 +100,9 @@ struct ngx_queue_s {
 
 
 #define ngx_queue_foreach(q, h)                                               \
-    for ((q) = ngx_queue_head(h); (q) != (h); (q) = ngx_queue_next(q))
+    for ((q) = ngx_queue_head(h);                                             \
+         (q) != ngx_queue_sentinel(h);                                        \
+         (q) = ngx_queue_next(q))
 
 
 #endif /* NGX_QUEUE_H_INCLUDED_ */

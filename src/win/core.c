@@ -28,6 +28,8 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "handle-inl.h"
+#include "req-inl.h"
 
 
 /* The only event loop we support right now */
@@ -43,17 +45,24 @@ static void uv_init(void) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
     SEM_NOOPENFILEERRORBOX);
 
+  /* Fetch winapi function pointers. This must be done first because other */
+  /* intialization code might need these function pointers to be loaded. */
+  uv_winapi_init();
+
   /* Initialize winsock */
   uv_winsock_init();
-
-  /* Fetch winapi function pointers */
-  uv_winapi_init();
 
   /* Initialize FS */
   uv_fs_init();
 
+  /* Initialize signal stuff */
+  uv_signals_init();
+
   /* Initialize console */
   uv_console_init();
+
+  /* Initialize utilities */
+  uv__util_init();
 }
 
 
@@ -64,15 +73,14 @@ static void uv_loop_init(uv_loop_t* loop) {
     uv_fatal_error(GetLastError(), "CreateIoCompletionPort");
   }
 
+  /* To prevent uninitialized memory access, loop->time must be intialized */
+  /* to zero before calling uv_update_time for the first time. */
+  loop->time = 0;
   uv_update_time(loop);
 
-#ifndef UV_LEAN_AND_MEAN
-  ngx_queue_init(&loop->active_handles);
+  ngx_queue_init(&loop->handle_queue);
   ngx_queue_init(&loop->active_reqs);
-#else
   loop->active_handles = 0;
-  loop->active_reqs = 0;
-#endif
 
   loop->pending_reqs_tail = NULL;
 
@@ -90,24 +98,24 @@ static void uv_loop_init(uv_loop_t* loop) {
 
   memset(&loop->poll_peer_sockets, 0, sizeof loop->poll_peer_sockets);
 
-  loop->channel = NULL;
-  RB_INIT(&loop->ares_handles);
-
   loop->active_tcp_streams = 0;
   loop->active_udp_streams = 0;
 
   loop->last_err = uv_ok_;
-
-  memset(&loop->counters, 0, sizeof loop->counters);
 }
 
 
 static void uv_default_loop_init(void) {
   /* Initialize libuv itself first */
-  uv_once(&uv_init_guard_, uv_init);
+  uv__once_init();
 
   /* Initialize the main loop */
   uv_loop_init(&uv_default_loop_);
+}
+
+
+void uv__once_init(void) {
+  uv_once(&uv_init_guard_, uv_init);
 }
 
 
@@ -121,7 +129,7 @@ uv_loop_t* uv_loop_new(void) {
   uv_loop_t* loop;
 
   /* Initialize libuv itself first */
-  uv_once(&uv_init_guard_, uv_init);
+  uv__once_init();
 
   loop = (uv_loop_t*)malloc(sizeof(uv_loop_t));
 
@@ -215,18 +223,10 @@ static void uv_poll_ex(uv_loop_t* loop, int block) {
   }
 }
 
-#ifndef UV_LEAN_AND_MEAN
-# define UV_LOOP_ALIVE(loop)                                                  \
-      (!ngx_queue_empty(&(loop)->active_handles) ||                           \
-       !ngx_queue_empty(&(loop)->active_reqs) ||                              \
-       (loop)->endgame_handles != NULL)
-#else
-# define UV_LOOP_ALIVE(loop)                                                  \
-      ((loop)->active_handles > 0 &&                                          \
-       (loop)->active_reqs > 0 &&                                             \
-       (loop)->endgame_handles != NULL)
-#endif
-
+#define UV_LOOP_ALIVE(loop)                                                   \
+    ((loop)->active_handles > 0 ||                                            \
+     !ngx_queue_empty(&(loop)->active_reqs) ||                                \
+     (loop)->endgame_handles != NULL)
 
 #define UV_LOOP_ONCE(loop, poll)                                              \
   do {                                                                        \

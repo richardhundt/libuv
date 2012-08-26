@@ -26,6 +26,9 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "handle-inl.h"
+#include "stream-inl.h"
+#include "req-inl.h"
 
 
 /* A zero-size buffer for use by uv_pipe_read */
@@ -71,9 +74,8 @@ static void uv_unique_pipe_name(char* ptr, char* name, size_t size) {
 
 
 int uv_pipe_init(uv_loop_t* loop, uv_pipe_t* handle, int ipc) {
-  uv_stream_init(loop, (uv_stream_t*)handle);
+  uv_stream_init(loop, (uv_stream_t*)handle, UV_NAMED_PIPE);
 
-  handle->type = UV_NAMED_PIPE;
   handle->reqs_pending = 0;
   handle->handle = INVALID_HANDLE_VALUE;
   handle->name = NULL;
@@ -85,8 +87,6 @@ int uv_pipe_init(uv_loop_t* loop, uv_pipe_t* handle, int ipc) {
   handle->non_overlapped_writes_tail = NULL;
 
   uv_req_init(loop, (uv_req_t*) &handle->ipc_header_write_req);
-
-  loop->counters.pipe_init++;
 
   return 0;
 }
@@ -157,14 +157,14 @@ static HANDLE open_named_pipe(WCHAR* name, DWORD* duplex_flags) {
 }
 
 
-int uv_stdio_pipe_server(uv_loop_t* loop, uv_pipe_t* handle, DWORD access,
+uv_err_t uv_stdio_pipe_server(uv_loop_t* loop, uv_pipe_t* handle, DWORD access,
     char* name, size_t nameSize) {
   HANDLE pipeHandle;
   int errorno;
-  int err;
+  uv_err_t err;
   char* ptr = (char*)handle;
 
-  while (TRUE) {
+  for (;;) {
     uv_unique_pipe_name(ptr, name, nameSize);
 
     pipeHandle = CreateNamedPipeA(name,
@@ -179,9 +179,8 @@ int uv_stdio_pipe_server(uv_loop_t* loop, uv_pipe_t* handle, DWORD access,
 
     errorno = GetLastError();
     if (errorno != ERROR_PIPE_BUSY && errorno != ERROR_ACCESS_DENIED) {
-      uv__set_sys_error(loop, errorno);
-      err = -1;
-      goto done;
+      err = uv__new_sys_error(errorno);
+      goto error;
     }
 
     /* Pipe name collision.  Increment the pointer and try again. */
@@ -192,17 +191,17 @@ int uv_stdio_pipe_server(uv_loop_t* loop, uv_pipe_t* handle, DWORD access,
                              loop->iocp,
                              (ULONG_PTR)handle,
                              0) == NULL) {
-    uv__set_sys_error(loop, GetLastError());
-    err = -1;
-    goto done;
+    err = uv__new_sys_error(GetLastError());
+    goto error;
   }
 
   uv_pipe_connection_init(handle);
   handle->handle = pipeHandle;
-  err = 0;
 
-done:
-  if (err && pipeHandle != INVALID_HANDLE_VALUE) {
+  return uv_ok_;
+
+ error:
+  if (pipeHandle != INVALID_HANDLE_VALUE) {
     CloseHandle(pipeHandle);
   }
 
@@ -298,7 +297,7 @@ void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle) {
 
       /* Already closing. Cancel the shutdown. */
       if (req->cb) {
-        uv__set_sys_error(loop, WSAEINTR);
+        uv__set_artificial_error(loop, UV_ECANCELED);
         req->cb(req, -1);
       }
 
@@ -358,7 +357,6 @@ void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle) {
   if (handle->flags & UV_HANDLE_CLOSING &&
       handle->reqs_pending == 0) {
     assert(!(handle->flags & UV_HANDLE_CLOSED));
-    handle->flags |= UV_HANDLE_CLOSED;
     uv__handle_stop(handle);
 
     if (handle->flags & UV_HANDLE_CONNECTION) {
@@ -385,9 +383,7 @@ void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle) {
       handle->accept_reqs = NULL;
     }
 
-    if (handle->close_cb) {
-      handle->close_cb((uv_handle_t*)handle);
-    }
+    uv__handle_close(handle);
   }
 }
 
@@ -434,13 +430,13 @@ int uv_pipe_bind(uv_pipe_t* handle, const char* name) {
   }
 
   /* Convert name to UTF16. */
-  nameSize = uv_utf8_to_utf16(name, NULL, 0) * sizeof(wchar_t);
-  handle->name = (wchar_t*)malloc(nameSize);
+  nameSize = uv_utf8_to_utf16(name, NULL, 0) * sizeof(WCHAR);
+  handle->name = (WCHAR*)malloc(nameSize);
   if (!handle->name) {
     uv_fatal_error(ERROR_OUTOFMEMORY, "malloc");
   }
 
-  if (!uv_utf8_to_utf16(name, handle->name, nameSize / sizeof(wchar_t))) {
+  if (!uv_utf8_to_utf16(name, handle->name, nameSize / sizeof(WCHAR))) {
     uv__set_sys_error(loop, GetLastError());
     return -1;
   }
@@ -546,13 +542,13 @@ void uv_pipe_connect(uv_connect_t* req, uv_pipe_t* handle,
   req->cb = cb;
 
   /* Convert name to UTF16. */
-  nameSize = uv_utf8_to_utf16(name, NULL, 0) * sizeof(wchar_t);
-  handle->name = (wchar_t*)malloc(nameSize);
+  nameSize = uv_utf8_to_utf16(name, NULL, 0) * sizeof(WCHAR);
+  handle->name = (WCHAR*)malloc(nameSize);
   if (!handle->name) {
     uv_fatal_error(ERROR_OUTOFMEMORY, "malloc");
   }
 
-  if (!uv_utf8_to_utf16(name, handle->name, nameSize / sizeof(wchar_t))) {
+  if (!uv_utf8_to_utf16(name, handle->name, nameSize / sizeof(WCHAR))) {
     errorno = GetLastError();
     goto error;
   }

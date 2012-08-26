@@ -22,15 +22,12 @@
 #include "uv.h"
 #include "uv-common.h"
 
+#include <stdio.h>
 #include <assert.h>
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
 #include <string.h> /* memset */
 
-/* use inet_pton from c-ares if necessary */
-#include "ares_config.h"
-#include "ares/inet_net_pton.h"
-#include "ares/inet_ntop.h"
 
 #define XX(uc, lc) case UV_##uc: return sizeof(uv_##lc##_t);
 
@@ -87,7 +84,7 @@ size_t uv_strlcat(char* dst, const char* src, size_t size) {
 }
 
 
-uv_buf_t uv_buf_init(char* base, size_t len) {
+uv_buf_t uv_buf_init(char* base, unsigned int len) {
   uv_buf_t buf;
   buf.base = base;
   buf.len = len;
@@ -181,21 +178,21 @@ struct sockaddr_in6 uv_ip6_addr(const char* ip, int port) {
 
   addr.sin6_family = AF_INET6;
   addr.sin6_port = htons(port);
-  ares_inet_pton(AF_INET6, ip, &addr.sin6_addr);
+  uv_inet_pton(AF_INET6, ip, &addr.sin6_addr);
 
   return addr;
 }
 
 
 int uv_ip4_name(struct sockaddr_in* src, char* dst, size_t size) {
-  const char* d = ares_inet_ntop(AF_INET, &src->sin_addr, dst, size);
-  return d != dst;
+  uv_err_t err = uv_inet_ntop(AF_INET, &src->sin_addr, dst, size);
+  return err.code != UV_OK;
 }
 
 
 int uv_ip6_name(struct sockaddr_in6* src, char* dst, size_t size) {
-  const char* d = ares_inet_ntop(AF_INET6, &src->sin6_addr, dst, size);
-  return d != dst;
+  uv_err_t err = uv_inet_ntop(AF_INET6, &src->sin6_addr, dst, size);
+  return err.code != UV_OK;
 }
 
 
@@ -315,6 +312,62 @@ int uv_thread_create(uv_thread_t *tid, void (*entry)(void *arg), void *arg) {
 
   return 0;
 }
+
+
+void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
+  ngx_queue_t* q;
+  uv_handle_t* h;
+
+  ngx_queue_foreach(q, &loop->handle_queue) {
+    h = ngx_queue_data(q, uv_handle_t, handle_queue);
+    if (h->flags & UV__HANDLE_INTERNAL) continue;
+    walk_cb(h, arg);
+  }
+}
+
+
+#ifndef NDEBUG
+static void uv__print_handles(uv_loop_t* loop, int only_active) {
+  const char* type;
+  ngx_queue_t* q;
+  uv_handle_t* h;
+
+  if (loop == NULL)
+    loop = uv_default_loop();
+
+  ngx_queue_foreach(q, &loop->handle_queue) {
+    h = ngx_queue_data(q, uv_handle_t, handle_queue);
+
+    if (only_active && !uv__is_active(h))
+      continue;
+
+    switch (h->type) {
+#define X(uc, lc) case UV_##uc: type = #lc; break;
+      UV_HANDLE_TYPE_MAP(X)
+#undef X
+      default: type = "<unknown>";
+    }
+
+    fprintf(stderr,
+            "[%c%c%c] %-8s %p\n",
+            "R-"[!(h->flags & UV__HANDLE_REF)],
+            "A-"[!(h->flags & UV__HANDLE_ACTIVE)],
+            "I-"[!(h->flags & UV__HANDLE_INTERNAL)],
+            type,
+            (void*)h);
+  }
+}
+
+
+void uv_print_all_handles(uv_loop_t* loop) {
+  uv__print_handles(loop, 0);
+}
+
+
+void uv_print_active_handles(uv_loop_t* loop) {
+  uv__print_handles(loop, 1);
+}
+#endif
 
 
 void uv_ref(uv_handle_t* handle) {

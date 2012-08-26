@@ -43,6 +43,16 @@
 
 static char *process_title;
 
+
+int uv__platform_loop_init(uv_loop_t* loop, int default_loop) {
+  return 0;
+}
+
+
+void uv__platform_loop_delete(uv_loop_t* loop) {
+}
+
+
 #if TARGET_OS_IPHONE
 /* see: http://developer.apple.com/library/mac/#qa/qa1398/_index.html */
 uint64_t uv_hrtime() {
@@ -211,7 +221,8 @@ uv_err_t uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
   uv_cpu_info_t* cpu_info;
 
   size = sizeof(model);
-  if (sysctlbyname("hw.model", &model, &size, NULL, 0) < 0) {
+  if (sysctlbyname("machdep.cpu.brand_string", &model, &size, NULL, 0) < 0 &&
+      sysctlbyname("hw.model", &model, &size, NULL, 0) < 0) {
     return uv__new_sys_error(errno);
   }
   size = sizeof(cpuspeed);
